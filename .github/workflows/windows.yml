@@ -26,7 +26,7 @@ jobs:
         shell: pwsh
         run: |
           $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $csc /nologo /out:src/Kthc/bin/Release/IntegrationTests.exe /reference:src/Kthc/bin/Release/Kthc.exe /reference:System.Data.dll tests/IntegrationTests.cs
+          & $csc /nologo /out:src\Kthc\bin\Release\IntegrationTests.exe /reference:src\Kthc\bin\Release\Kthc.exe /reference:System.Data.dll .\tests\IntegrationTests.cs
           if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
           & ./src/Kthc/bin/Release/IntegrationTests.exe
           if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed' }
