@@ -1,0 +1,46 @@
+CREATE TABLE Settings (Id int NOT NULL PRIMARY KEY CHECK(Id=1), UnitName nvarchar(200) NOT NULL, UnitCode nvarchar(50) NOT NULL, Regime nvarchar(200) NOT NULL);
+INSERT Settings VALUES(1,N'ĐƠN VỊ CHƯA CẤU HÌNH',N'',N'TT24/2024 — cấu hình thử nghiệm, cần nghiệm thu');
+CREATE TABLE Accounts(Code nvarchar(20) PRIMARY KEY, Name nvarchar(200) NOT NULL, OffBalance bit NOT NULL DEFAULT 0, Active bit NOT NULL DEFAULT 1);
+-- Danh mục tối thiểu để chạy thử; không phải toàn bộ Phụ lục I.
+INSERT Accounts(Code,Name,OffBalance) VALUES ('111',N'Tiền mặt',0),('112',N'Tiền gửi Ngân hàng, Kho bạc',0),('131',N'Phải thu khách hàng',0),('141',N'Tạm ứng',0),('152',N'Nguyên liệu, vật liệu',0),('153',N'Công cụ, dụng cụ',0),('211',N'Tài sản cố định hữu hình',0),('214',N'Khấu hao và hao mòn lũy kế TSCĐ',0),('241',N'Xây dựng cơ bản dở dang',0),('331',N'Phải trả cho người bán',0),('334',N'Phải trả người lao động',0),('511',N'Doanh thu từ kinh phí NSNN cấp',0),('611',N'Chi phí hoạt động',0),('008',N'Dự toán chi hoạt động',1);
+CREATE TABLE Parties(Code nvarchar(30) PRIMARY KEY, Name nvarchar(200) NOT NULL, TaxCode nvarchar(30) NULL, Address nvarchar(300) NULL);
+CREATE TABLE Funds(Code nvarchar(30) PRIMARY KEY, Name nvarchar(200) NOT NULL);
+CREATE TABLE BudgetItems(Code nvarchar(30) PRIMARY KEY, Name nvarchar(200) NOT NULL, Chapter nvarchar(10), Category nvarchar(10), Section nvarchar(10), Subsection nvarchar(10));
+CREATE TABLE Periods(Period char(7) PRIMARY KEY, Locked bit NOT NULL DEFAULT 0, CHECK(Period LIKE '[12][0-9][0-9][0-9]-[01][0-9]'));
+CREATE TABLE Projects(Code nvarchar(30) PRIMARY KEY, Name nvarchar(200) NOT NULL, DecisionNo nvarchar(100), ApprovalDate date, StartDate date, EndDate date, ApprovedBudget decimal(19,2) NOT NULL DEFAULT 0 CHECK(ApprovedBudget>=0), Status nvarchar(30) NOT NULL DEFAULT N'Đang thực hiện');
+CREATE TABLE Contracts(Code nvarchar(30) PRIMARY KEY, ProjectCode nvarchar(30) NOT NULL REFERENCES Projects(Code), PartyCode nvarchar(30) NOT NULL REFERENCES Parties(Code), Name nvarchar(200) NOT NULL, SignedDate date NOT NULL, Value decimal(19,2) NOT NULL CHECK(Value>=0), RetentionPercent decimal(5,2) NOT NULL DEFAULT 0 CHECK(RetentionPercent BETWEEN 0 AND 100));
+CREATE TABLE Acceptances(Id int IDENTITY PRIMARY KEY, ContractCode nvarchar(30) NOT NULL REFERENCES Contracts(Code), Number nvarchar(60) NOT NULL, AcceptanceDate date NOT NULL, Amount decimal(19,2) NOT NULL CHECK(Amount>0), Note nvarchar(500), UNIQUE(ContractCode,Number));
+CREATE TABLE CapitalPlans(Id int IDENTITY PRIMARY KEY, ProjectCode nvarchar(30) NOT NULL REFERENCES Projects(Code), FundCode nvarchar(30) NOT NULL REFERENCES Funds(Code), FiscalYear int NOT NULL CHECK(FiscalYear BETWEEN 2000 AND 2200), Amount decimal(19,2) NOT NULL CHECK(Amount>=0), UNIQUE(ProjectCode,FundCode,FiscalYear));
+CREATE TABLE Vouchers(Id int IDENTITY PRIMARY KEY, Number nvarchar(60) NOT NULL UNIQUE, VoucherDate date NOT NULL, Kind nvarchar(40) NOT NULL, Description nvarchar(500) NOT NULL, Status nvarchar(10) NOT NULL DEFAULT 'Draft' CHECK(Status IN ('Draft','Posted')), ReversesId int NULL REFERENCES Vouchers(Id), CreatedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME(), PostedAt datetime2 NULL);
+CREATE UNIQUE INDEX IX_Reversal ON Vouchers(ReversesId) WHERE ReversesId IS NOT NULL;
+CREATE TABLE Lines(Id int IDENTITY PRIMARY KEY, VoucherId int NOT NULL REFERENCES Vouchers(Id), AccountCode nvarchar(20) NOT NULL REFERENCES Accounts(Code), Debit decimal(19,2) NOT NULL DEFAULT 0, Credit decimal(19,2) NOT NULL DEFAULT 0, PartyCode nvarchar(30) NULL REFERENCES Parties(Code), FundCode nvarchar(30) NULL REFERENCES Funds(Code), BudgetCode nvarchar(30) NULL REFERENCES BudgetItems(Code), ProjectCode nvarchar(30) NULL REFERENCES Projects(Code), ContractCode nvarchar(30) NULL REFERENCES Contracts(Code), CostCategory nvarchar(100) NULL, CHECK((Debit>0 AND Credit=0) OR (Credit>0 AND Debit=0)));
+CREATE INDEX IX_Lines_Account ON Lines(AccountCode,VoucherId);
+CREATE INDEX IX_Lines_Project ON Lines(ProjectCode,ContractCode);
+CREATE TABLE Assets(Code nvarchar(30) PRIMARY KEY, Name nvarchar(200) NOT NULL, InServiceDate date NOT NULL, Cost decimal(19,2) NOT NULL CHECK(Cost>=0), Accumulated decimal(19,2) NOT NULL DEFAULT 0, Department nvarchar(100), ProjectCode nvarchar(30) NULL REFERENCES Projects(Code), CHECK(Accumulated BETWEEN 0 AND Cost));
+CREATE TABLE Items(Code nvarchar(30) PRIMARY KEY, Name nvarchar(200) NOT NULL, Unit nvarchar(30) NOT NULL);
+CREATE TABLE StockMoves(Id int IDENTITY PRIMARY KEY, MoveDate date NOT NULL, ItemCode nvarchar(30) NOT NULL REFERENCES Items(Code), Warehouse nvarchar(50) NOT NULL, Quantity decimal(19,4) NOT NULL CHECK(Quantity<>0), UnitCost decimal(19,2) NOT NULL CHECK(UnitCost>=0), Reference nvarchar(60) NOT NULL);
+CREATE TABLE Employees(Code nvarchar(30) PRIMARY KEY, Name nvarchar(200) NOT NULL, Department nvarchar(100), BaseSalary decimal(19,2) NOT NULL DEFAULT 0 CHECK(BaseSalary>=0));
+CREATE TABLE Payroll(Id int IDENTITY PRIMARY KEY, Period char(7) NOT NULL, EmployeeCode nvarchar(30) NOT NULL REFERENCES Employees(Code), Salary decimal(19,2) NOT NULL CHECK(Salary>=0), Allowance decimal(19,2) NOT NULL DEFAULT 0 CHECK(Allowance>=0), Deduction decimal(19,2) NOT NULL DEFAULT 0 CHECK(Deduction>=0), UNIQUE(Period,EmployeeCode), CHECK(Deduction<=Salary+Allowance));
+CREATE TABLE Audit(Id bigint IDENTITY PRIMARY KEY, At datetime2 NOT NULL DEFAULT SYSUTCDATETIME(), Actor nvarchar(200) NOT NULL, Action nvarchar(100) NOT NULL, Entity nvarchar(100) NOT NULL, Detail nvarchar(max) NOT NULL);
+GO
+CREATE VIEW Ledger AS SELECT v.Id VoucherId,v.Number,v.VoucherDate,v.Kind,v.Description,v.ReversesId,l.AccountCode,a.Name AccountName,a.OffBalance,l.Debit,l.Credit,l.PartyCode,l.FundCode,l.BudgetCode,l.ProjectCode,l.ContractCode,l.CostCategory FROM Vouchers v JOIN Lines l ON l.VoucherId=v.Id JOIN Accounts a ON a.Code=l.AccountCode WHERE v.Status='Posted';
+GO
+CREATE VIEW TrialBalance AS SELECT AccountCode,AccountName,OffBalance,SUM(Debit) Debit,SUM(Credit) Credit,SUM(Debit-Credit) Net FROM Ledger GROUP BY AccountCode,AccountName,OffBalance;
+GO
+CREATE VIEW ProjectSummary AS SELECT p.Code,p.Name,p.ApprovedBudget,COALESCE((SELECT SUM(Amount) FROM CapitalPlans c WHERE c.ProjectCode=p.Code),0) CapitalPlan,COALESCE((SELECT SUM(Value) FROM Contracts c WHERE c.ProjectCode=p.Code),0) ContractValue,COALESCE((SELECT SUM(n.Amount) FROM Acceptances n JOIN Contracts c ON c.Code=n.ContractCode WHERE c.ProjectCode=p.Code),0) Accepted,COALESCE((SELECT SUM(Debit-Credit) FROM Ledger l WHERE l.ProjectCode=p.Code AND l.AccountCode LIKE '241%'),0) ConstructionBalance FROM Projects p;
+GO
+CREATE VIEW ContractSummary AS SELECT c.Code,c.ProjectCode,c.Name,c.PartyCode,c.Value,COALESCE((SELECT SUM(Amount) FROM Acceptances n WHERE n.ContractCode=c.Code),0) Accepted,COALESCE((SELECT SUM(Debit) FROM Ledger l WHERE l.ContractCode=c.Code AND l.AccountCode LIKE '331%'),0) Debit331,COALESCE((SELECT SUM(Credit) FROM Ledger l WHERE l.ContractCode=c.Code AND l.AccountCode LIKE '331%'),0) Credit331,COALESCE((SELECT SUM(Credit-Debit) FROM Ledger l WHERE l.ContractCode=c.Code AND l.AccountCode LIKE '331%'),0) PayableBalance FROM Contracts c;
+GO
+CREATE TRIGGER GuardPostedLines ON Lines AFTER INSERT, UPDATE, DELETE AS BEGIN SET NOCOUNT ON; IF EXISTS(SELECT 1 FROM Vouchers v JOIN (SELECT VoucherId FROM inserted UNION SELECT VoucherId FROM deleted) x ON x.VoucherId=v.Id WHERE v.Status='Posted') THROW 51000,N'Không được sửa dòng chứng từ đã ghi sổ.',1; END;
+GO
+CREATE TRIGGER GuardPostedVoucher ON Vouchers AFTER UPDATE, DELETE AS BEGIN SET NOCOUNT ON; IF EXISTS(SELECT 1 FROM deleted WHERE Status='Posted') THROW 51001,N'Chứng từ đã ghi sổ chỉ sửa bằng chứng từ đảo.',1; END;
+GO
+CREATE TRIGGER ValidatePosting ON Vouchers AFTER UPDATE AS BEGIN SET NOCOUNT ON;
+IF EXISTS(SELECT 1 FROM inserted i WHERE i.Status='Posted' AND EXISTS(SELECT 1 FROM Periods p WHERE p.Period=CONVERT(char(7),i.VoucherDate,126) AND p.Locked=1)) THROW 51002,N'Kỳ đã khóa.',1;
+IF EXISTS(SELECT 1 FROM inserted i WHERE i.Status='Posted' AND NOT EXISTS(SELECT 1 FROM Lines l WHERE l.VoucherId=i.Id)) THROW 51003,N'Chứng từ chưa có dòng.',1;
+IF EXISTS(SELECT l.VoucherId FROM Lines l JOIN Accounts a ON a.Code=l.AccountCode JOIN inserted i ON i.Id=l.VoucherId WHERE i.Status='Posted' AND a.OffBalance=0 GROUP BY l.VoucherId HAVING SUM(l.Debit)<>SUM(l.Credit)) THROW 51004,N'Tổng Nợ và Có trong bảng không cân.',1;
+IF EXISTS(SELECT 1 FROM Lines l JOIN Accounts a ON a.Code=l.AccountCode JOIN inserted i ON i.Id=l.VoucherId WHERE i.Status='Posted' AND a.Active=0) THROW 51005,N'Tài khoản ngừng sử dụng.',1;
+IF EXISTS(SELECT 1 FROM Lines l JOIN inserted i ON i.Id=l.VoucherId WHERE i.Status='Posted' AND l.ContractCode IS NOT NULL AND (l.ProjectCode IS NULL OR NOT EXISTS(SELECT 1 FROM Contracts c WHERE c.Code=l.ContractCode AND c.ProjectCode=l.ProjectCode AND c.PartyCode=l.PartyCode))) THROW 51006,N'Hợp đồng không khớp dự án hoặc nhà thầu.',1;
+END;
+GO
+CREATE TRIGGER GuardAccounts ON Accounts AFTER UPDATE,DELETE AS BEGIN SET NOCOUNT ON; IF EXISTS(SELECT 1 FROM deleted d JOIN Lines l ON l.AccountCode=d.Code JOIN Vouchers v ON v.Id=l.VoucherId LEFT JOIN inserted i ON i.Code=d.Code WHERE v.Status='Posted' AND (i.Code IS NULL OR i.OffBalance<>d.OffBalance)) THROW 51007,N'Không đổi loại tài khoản đã phát sinh ghi sổ.',1; END;
