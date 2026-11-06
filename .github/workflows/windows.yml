@@ -1,0 +1,41 @@
+name: Windows build and database tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-test:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build .NET Framework 4.8
+        run: msbuild Kthc.sln /p:Configuration=Release /m /verbosity:minimal
+      - name: Start LocalDB
+        shell: pwsh
+        run: |
+          $localdb = Get-ChildItem 'C:\Program Files\Microsoft SQL Server' -Filter SqlLocalDB.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          if (!$localdb) { throw 'SQL Server LocalDB not found' }
+          & $localdb create MSSQLLocalDB
+          & $localdb start MSSQLLocalDB
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot start LocalDB' }
+      - name: Compile and run integration tests
+        shell: pwsh
+        run: |
+          $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /out:src/Kthc/bin/Release/IntegrationTests.exe /reference:src/Kthc/bin/Release/Kthc.exe /reference:System.Data.dll tests/IntegrationTests.cs
+          if ($LASTEXITCODE -ne 0) { throw 'Test compilation failed' }
+          & ./src/Kthc/bin/Release/IntegrationTests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed' }
+          Remove-Item src/Kthc/bin/Release/IntegrationTests.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KTHC-Windows-net48
+          path: |
+            src/Kthc/bin/Release/Kthc.exe
+            src/Kthc/bin/Release/Kthc.exe.config
+            docs/INSTALL.md
+          if-no-files-found: error
